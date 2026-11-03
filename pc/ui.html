@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone Remote</title>
+<style>
+  :root { --bg:#12151A; --card:#1A1D24; --card2:#262B35; --text:#F2F4F7; --muted:#A3AAB8; --accent:#4FD1C5; --danger:#FF8A8A; --green:#4ADE80; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 24px 24px 28px; display:flex; flex-direction:column; gap:16px; }
+  .status { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:700; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--green); }
+  .dot.off { background:var(--muted); }
+  .card { background:var(--card); border-radius:18px; padding:16px 20px; display:flex; align-items:center; gap:16px; justify-content:space-between; }
+  .icon { width:48px; height:48px; border-radius:14px; background:var(--card2); color:var(--accent); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .grow { flex:1; display:flex; flex-direction:column; gap:2px; }
+  .t { font-size:16px; font-weight:600; }
+  .s { font-size:13px; color:var(--muted); line-height:1.4; }
+  .ok { font-size:13px; color:var(--green); }
+  .code { display:flex; gap:8px; }
+  .code span { width:40px; height:48px; border-radius:10px; background:var(--card2); display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:700; }
+  button { font-family:inherit; cursor:pointer; }
+  .find { width:100%; height:72px; border:0; border-radius:18px; background:var(--accent); color:#0F1115; font-size:19px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:14px; }
+  .find[disabled] { background:var(--card2); color:var(--muted); cursor:default; }
+  .note { font-size:13px; color:var(--muted); text-align:center; margin-top:-8px; }
+  .quit { height:44px; padding:0 22px; border:0; border-radius:14px; background:#3A2326; color:var(--danger); font-size:15px; font-weight:700; flex-shrink:0; }
+  .switch { width:52px; height:30px; border:0; border-radius:15px; background:#3A404C; padding:0; position:relative; flex-shrink:0; }
+  .switch::after { content:""; position:absolute; left:3px; top:3px; width:24px; height:24px; border-radius:50%; background:#fff; transition:left .15s; }
+  .switch.on { background:var(--accent); }
+  .switch.on::after { left:25px; background:#0F1115; }
+  .spacer { height:8px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">Ready. Waiting for your phone.</span></div>
+
+  <div class="card">
+    <div class="icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+    </div>
+    <div class="grow"><span class="t">Your phone</span><span class="s" id="phoneText">Not connected yet</span></div>
+    <span class="ok" id="phoneBadge"></span>
+  </div>
+
+  <div class="card" id="codeCard">
+    <div class="grow"><span class="t">Pairing code</span><span class="s">Type this in the app the first time you connect.</span><span class="s" id="addr"></span></div>
+    <div class="code" id="code"><span>-</span><span>-</span><span>-</span><span>-</span></div>
+  </div>
+
+  <button class="find" id="find">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a8 8 0 0 1 12 0"/><path d="M4 4a12 12 0 0 1 16 0"/><rect x="9" y="11" width="6" height="11" rx="1.5"/></svg>
+    <span id="findText">Find my phone</span>
+  </button>
+  <div class="note" id="findNote">Makes your phone ring loudly, even if it is on silent.</div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="grow"><span class="t">Quit the program</span><span class="s">Closes it completely. Use before online games.</span></div>
+    <button class="quit" id="quit">Quit</button>
+  </div>
+
+  <div class="card">
+    <div class="grow"><span class="t">Start with Windows</span><span class="s">So the remote is ready whenever your PC is on.</span></div>
+    <button class="switch" id="auto" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
+  </div>
+
+  <div class="s" style="text-align:center" id="ver"></div>
+</main>
+<script>
+  const H = { "X-PR": "1" };
+  const $ = (id) => document.getElementById(id);
+  let ringing = false, phoneKnown = false, noteLocked = false, ringTimer = null;
+  function setRinging(on) {
+    ringing = on;
+    $("findText").textContent = on ? "Stop ringing" : "Find my phone";
+    $("findNote").style.color = "";
+    $("findNote").textContent = on ? "Your phone is ringing. It will stop by itself after 3 minutes." : "Makes your phone ring loudly, even if it is on silent.";
+    clearTimeout(ringTimer);
+    if (on) ringTimer = setTimeout(() => setRinging(false), 180000);
+  }
+  $("find").addEventListener("click", async () => {
+    try {
+      const r = await fetch("/ui/find" + (ringing ? "?stop=1" : ""), { method: "POST", headers: H });
+      const s = await r.json();
+      if (s.ok) { setRinging(!ringing); return; }
+      noteLocked = true;
+      $("findNote").style.color = "var(--danger)";
+      $("findNote").textContent = s.message || "Couldn't reach your phone.";
+      setTimeout(() => { noteLocked = false; }, 6000);
+    } catch (e) {}
+  });
+  async function refresh() {
+    try {
+      const r = await fetch("/ui/status", { cache: "no-store" });
+      const s = await r.json();
+      const digits = (s.code || "----").split("");
+      $("code").innerHTML = digits.map((d) => "<span>" + d + "</span>").join("");
+      $("addr").textContent = s.ip ? "This PC's address: " + s.ip : "";
+      $("dot").className = "dot";
+      $("statusText").textContent = s.connected ? "Connected to your phone." : "Ready. Waiting for your phone.";
+      $("phoneText").textContent = s.connected ? "Connected on your home Wi-Fi" : (s.paired ? "Paired. Open the app on your phone." : "Not connected yet");
+      $("phoneBadge").textContent = s.connected ? "Connected" : "";
+      $("auto").className = "switch" + (s.autostart ? " on" : "");
+      $("auto").setAttribute("aria-checked", s.autostart ? "true" : "false");
+      $("ver").textContent = "Phone Remote " + (s.version || "");
+      phoneKnown = !!s.phoneKnown;
+      if (!ringing && !noteLocked) {
+        $("findNote").style.color = "";
+        $("findNote").textContent = phoneKnown
+          ? "Makes your phone ring loudly, even if it is on silent."
+          : "Open the app on your phone first, so your PC knows where it is.";
+      }
+    } catch (e) {
+      $("dot").className = "dot off";
+      $("statusText").textContent = "The program has been closed.";
+    }
+  }
+  $("auto").addEventListener("click", async () => {
+    const on = !$("auto").classList.contains("on");
+    await fetch("/ui/autostart?on=" + (on ? "1" : "0"), { method: "POST", headers: H });
+    refresh();
+  });
+  $("quit").addEventListener("click", async () => {
+    try { await fetch("/ui/quit", { method: "POST", headers: H }); } catch (e) {}
+    $("dot").className = "dot off";
+    $("statusText").textContent = "The program has been closed. You can close this window.";
+    setTimeout(() => window.close(), 800);
+  });
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>
