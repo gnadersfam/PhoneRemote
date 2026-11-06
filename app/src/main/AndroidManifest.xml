@@ -33,6 +33,13 @@
         </activity>
 
         <activity
+            android:name=".ScreenActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:screenOrientation="fullSensor"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".RingActivity"
             android:exported="false"
             android:excludeFromRecents="true"

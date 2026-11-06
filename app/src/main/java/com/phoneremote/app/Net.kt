@@ -76,6 +76,42 @@ object Net {
         return null
     }
 
+    class BytesReply(val code: Int, val body: ByteArray)
+
+    /**
+     * Opens a connection that stays open (the live screen picture, or the sound).
+     * The caller reads from it and closes it. Nothing is sent until the caller reads.
+     */
+    fun open(host: String, port: Int, path: String, token: String, view: String, readTimeoutMs: Int): HttpURLConnection {
+        val conn = URL("http://" + host + ":" + port + path).openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 3000
+        conn.readTimeout = readTimeoutMs
+        conn.useCaches = false
+        conn.setRequestProperty("X-Token", token)
+        conn.setRequestProperty("X-View", view)
+        return conn
+    }
+
+    /** One request whose answer is a file (a picture), not text. Returns null if the PC could not be reached. */
+    fun callBytes(host: String, port: Int, path: String, token: String, view: String): BytesReply? {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = open(host, port, path, token, view, 20000)
+            val code: Int = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val body: ByteArray = if (stream != null) stream.use { it.readBytes() } else ByteArray(0)
+            return BytesReply(code, body)
+        } catch (e: Exception) {
+            return null
+        } finally {
+            try {
+                conn?.disconnect()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
     /** One request to the PC. Returns null if the PC could not be reached. */
     fun call(host: String, port: Int, method: String, path: String, token: String?, form: String?): Reply? {
         var conn: HttpURLConnection? = null

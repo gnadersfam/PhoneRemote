@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,8 +37,9 @@ const (
 )
 
 type config struct {
-	Token string `json:"token"`
-	Setup bool   `json:"setup"`
+	Token     string `json:"token"`
+	Setup     bool   `json:"setup"`
+	ScreenPin string `json:"screenPin"`
 }
 
 type app struct {
@@ -48,6 +50,12 @@ type app struct {
 	badTries int
 	lastSeen time.Time
 	port     int
+
+	// screen view: phones that typed the screen PIN, and PIN guessing limits
+	views        map[string]time.Time
+	pinBad       int
+	pinLockUntil time.Time
+	watching     int32 // how many screen views are open right now
 
 	// where the phone said it can be reached (for Find my phone)
 	phoneHost string
@@ -81,6 +89,11 @@ func (a *app) load() {
 		json.Unmarshal(data, &a.cfg)
 	}
 	a.code = randomDigits()
+	a.views = map[string]time.Time{}
+	if len(a.cfg.ScreenPin) != 4 {
+		a.cfg.ScreenPin = randomDigits()
+		a.save()
+	}
 }
 
 func (a *app) save() {
@@ -193,12 +206,19 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("/mouse/move", a.authed(a.handleMouseMove))
 	mux.HandleFunc("/mouse/click", a.authed(a.handleMouseClick))
 	mux.HandleFunc("/mouse/scroll", a.authed(a.handleMouseScroll))
+	mux.HandleFunc("/mouse/abs", a.authed(a.handleMouseAbs))
+	mux.HandleFunc("/mouse/button", a.authed(a.handleMouseButton))
+	mux.HandleFunc("/screen/unlock", a.authed(a.handleScreenUnlock))
+	mux.HandleFunc("/screen/shot", a.viewAuthed(a.handleScreenShot))
+	mux.HandleFunc("/screen/stream", a.viewAuthed(a.handleScreenStream))
+	mux.HandleFunc("/audio/stream", a.viewAuthed(a.handleAudioStream))
 	mux.HandleFunc("/register", a.authed(a.handleRegister))
 	mux.HandleFunc("/ui", a.local(a.handleUI))
 	mux.HandleFunc("/ui/find", a.local(a.handleUIFind))
 	mux.HandleFunc("/ui/status", a.local(a.handleUIStatus))
 	mux.HandleFunc("/ui/quit", a.local(a.handleUIQuit))
 	mux.HandleFunc("/ui/autostart", a.local(a.handleUIAutostart))
+	mux.HandleFunc("/ui/pin", a.local(a.handleUIPinNew))
 	return a.lanOnly(mux)
 }
 
@@ -401,6 +421,44 @@ func (a *app) handleMouseScroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// Moves the pointer to a spot on the screen. x and y run from 0 to 10000
+// (left to right, top to bottom), so they work whatever the picture size.
+// Add click=left or click=right to click there as well.
+func (a *app) handleMouseAbs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]any{"error": "method"})
+		return
+	}
+	x := clampInt(queryInt(r, "x", 0), 0, 10000)
+	y := clampInt(queryInt(r, "y", 0), 0, 10000)
+	click := r.URL.Query().Get("click")
+	if click != "" && click != "left" && click != "right" {
+		writeJSON(w, 400, map[string]any{"error": "bad button"})
+		return
+	}
+	osMouseSet(float64(x)/10000, float64(y)/10000)
+	if click != "" {
+		osMouseClick(click)
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// Holds a mouse button down or lets it go (for dragging things).
+func (a *app) handleMouseButton(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]any{"error": "method"})
+		return
+	}
+	btn := r.URL.Query().Get("button")
+	act := r.URL.Query().Get("action")
+	if (btn != "left" && btn != "right") || (act != "down" && act != "up") {
+		writeJSON(w, 400, map[string]any{"error": "bad request"})
+		return
+	}
+	osMouseButton(btn, act == "down")
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 // ---- Find my phone
 
 // The phone tells us where it is now and then, so the PC knows where to knock.
@@ -497,8 +555,11 @@ func (a *app) handleUIStatus(w http.ResponseWriter, r *http.Request) {
 	connected := !a.lastSeen.IsZero() && time.Since(a.lastSeen) < 20*time.Second
 	port := a.port
 	phoneKnown := a.phoneHost != "" && time.Since(a.phoneSeen) < 10*time.Minute
+	pin := a.cfg.ScreenPin
 	a.mu.Unlock()
 	writeJSON(w, 200, map[string]any{
+		"pin":        pin,
+		"watching":   atomic.LoadInt32(&a.watching) > 0,
 		"phoneKnown": phoneKnown,
 		"name":       pcName,
 		"ip":         lanIP(),

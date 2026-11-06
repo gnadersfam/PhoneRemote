@@ -536,6 +536,27 @@ class MainActivity : Activity() {
         col.addView(kmRow, linp(MATCH, WRAP, 0f, 0, dp(ctx, 20), 0, 0))
         kmRow.setOnClickListener { showTouchpad() }
 
+        // ---- screen view
+        val scRow = LinearLayout(ctx)
+        scRow.orientation = LinearLayout.HORIZONTAL
+        scRow.gravity = Gravity.CENTER_VERTICAL
+        scRow.background = withRipple(ctx, C.CARD, 24)
+        scRow.isClickable = true
+        scRow.isFocusable = true
+        scRow.setPadding(dp(ctx, 20), dp(ctx, 16), dp(ctx, 16), dp(ctx, 16))
+        val scIcon = FrameLayout(ctx)
+        scIcon.background = rounded(ctx, C.CARD2, 14)
+        scIcon.addView(plainIcon(ctx, R.drawable.ic_pc, C.ACCENT), FrameLayout.LayoutParams(dp(ctx, 24), dp(ctx, 24), Gravity.CENTER))
+        scRow.addView(scIcon, linp(dp(ctx, 48), dp(ctx, 48)))
+        val scTexts = LinearLayout(ctx)
+        scTexts.orientation = LinearLayout.VERTICAL
+        scTexts.addView(label(ctx, "Screen view", 17f, C.TEXT, true))
+        scTexts.addView(label(ctx, "Watch and control your PC screen, with sound", 13f, C.MUTED, false), linp(MATCH, WRAP, 0f, 0, dp(ctx, 2), 0, 0))
+        scRow.addView(scTexts, linp(0, WRAP, 1f, dp(ctx, 14), 0, dp(ctx, 8), 0))
+        scRow.addView(plainIcon(ctx, R.drawable.ic_chevron_right, C.MUTED), linp(dp(ctx, 24), dp(ctx, 24)))
+        col.addView(scRow, linp(MATCH, WRAP, 0f, 0, dp(ctx, 12), 0, 0))
+        scRow.setOnClickListener { startActivity(Intent(this, ScreenActivity::class.java)) }
+
         // ---- find my phone
         val findRow = LinearLayout(ctx)
         findRow.orientation = LinearLayout.VERTICAL
